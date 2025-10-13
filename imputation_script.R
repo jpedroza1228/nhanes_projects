@@ -8,7 +8,9 @@ library(miceadds)
 # reverse binary from 1 = Yes, 2 = No to 1 = Yes, 0 = No
 # final indicators may want to be categorical for ease of use in naive bayes stan model
 # imputation model should have ~30 imputation with 10-15 iterations per
-latino <- read_csv("latino_vascular_dementia_indicators.csv")
+# latino <- read_csv("latino_vascular_dementia_indicators.csv")
+
+latino <- read_csv("https://raw.githubusercontent.com/jpedroza1228/nhanes_projects/refs/heads/main/latino_vascular_dementia_indicators.csv")
 
 nrow(latino)
 
@@ -79,16 +81,6 @@ model_df <- model_df |>
     ed != 7
   ) |>
   mutate(
-    num_ready_eat_30day_bi = case_when(
-      num_ready_eat_30day >= mean(model_df$num_ready_eat_30day, na.rm = TRUE) + (3 * sd(model_df$num_ready_eat_30day, na.rm = TRUE)) ~ 1,
-     num_ready_eat_30day < mean(model_df$num_ready_eat_30day, na.rm = TRUE) + (3 * sd(model_df$num_ready_eat_30day, na.rm = TRUE)) ~ 0,
-     TRUE ~ NA_integer_
-    ),
-    num_frozen_meal_30day_bi = case_when(
-      num_frozen_meal_30day >= mean(model_df$num_frozen_meal_30day, na.rm = TRUE) + (3 * sd(model_df$num_frozen_meal_30day, na.rm = TRUE)) ~ 1,
-     num_frozen_meal_30day < mean(model_df$num_frozen_meal_30day, na.rm = TRUE) + (3 * sd(model_df$num_frozen_meal_30day, na.rm = TRUE)) ~ 0,
-     TRUE ~ NA_integer_
-    ),
     across(
       c(
         told_high_bp,
@@ -106,9 +98,12 @@ model_df <- model_df |>
         walk_bike,
         vig_rec_act,
         mod_rec_act,
+        told_risk_diabetes,
+        feel_risk_diabetes,
         dr_told_sleep_trouble,
         dr_told_sleep_disorder,
-        smoke_100cig_life
+        smoke_100cig_life,
+        diff_think_remember
       ),
       ~case_when(
         .x == 1 ~ 1,
@@ -154,30 +149,91 @@ model_df <- model_df |>
   select(
     -c(
       bmi,
-      num_ready_eat_30day,
-      num_frozen_meal_30day,
-      sex
+      sex,
+      dr_told_lose_wt,
+      dr_told_exercise
     )
   )
 
-# don't start this yet
+model_df <- 
+model_df |> 
+  mutate(
+    across(
+      c(
+        citizen,
+        ed,
+        told_high_bp,
+        told_high_bp_2plus,
+        dr_told_high_chol,
+        dr_told_diabetes,
+        told_prediabetes,
+        told_risk_diabetes,
+        feel_risk_diabetes,
+        told_heart_fail,
+        told_heart_disease,
+        told_angina,
+        told_heart_attack,
+        told_stroke,
+        dr_told_overweight,
+        ever_use_coke_heroin_meth,
+        ever_45_drink_everyday,
+        walk_bike,
+        vig_rec_act,
+        mod_rec_act,
+        dr_told_sleep_trouble,
+        dr_told_sleep_disorder,
+        smoke_100cig_life,
+        female,
+        obese,
+        diff_think_remember
+      ),
+      ~as.factor(.x)
+    )
+  )
+
+glimpse(model_df)
+
+
 pred_matrix <- make.predictorMatrix(data = model_df)
 imp_method <- make.method(data = model_df)
 
+num_columns <- c("num_frozen_meal_30day", "num_ready_eat_30day",
+"digit_symbol_score", "animal_fluency_score", "cerad_intrusion_wordcount_recall",
+"cerad_intrusion_wordcount_trial3", "cerad_intrusion_wordcount_trial2",
+"cerad_intrusion_wordcount_trial1", "cerad_score_delay_recall",
+"cerad_score_trial3_recall", "cerad_score_trial2_recall",
+"cerad_score_trial1_recall", "fam_income_pov_ratio", "age")
+bi_columns <- c("obese", "female", "smoke_100cig_life",
+"dr_told_sleep_disorder", "dr_told_sleep_trouble",
+"mod_rec_act", "vig_rec_act", "walk_bike",
+"ever_45_drink_everyday", "ever_use_coke_heroin_meth",
+"dr_told_overweight", "told_stroke", "told_heart_attack",
+"told_angina", "told_heart_disease", "told_heart_fail",
+"feel_risk_diabetes", "told_risk_diabetes", "told_prediabetes",
+"diff_think_remember", "dr_told_high_chol", "told_high_bp_2plus",
+"told_high_bp", "citizen")
+cat_columns <- c("dr_told_diabetes", "ed")
+
+imp_method[num_columns] <- "pmm"
+imp_method[bi_columns] <- "logreg.boot"
+imp_method[cat_columns] <- "polyreg"
+
 # pred_matrix[, "seqn"] <- 0
 # pred_matrix[, "birth_country"] <- 0
-# pred_matrix[c("told_prediabetes", "told_risk_diabetes", "could_risk_diabetes"), "total_chol_mg_dl"] <- 0
+pred_matrix[c("told_prediabetes",
+              "feel_risk_diabetes",
+              "told_risk_diabetes"), "dr_told_diabetes"] <- 0
+pred_matrix["told_high_bp_2plus", "told_high_bp"] <- 0
 
 prac <- 
   mice(
   model_df,
-  maxit = 0,
+  maxit = 1,
   m = 1,
   method = imp_method,
   predictorMatrix = pred_matrix
 )
 
-prac
 prac$loggedEvents
 
 rm(prac)
@@ -189,8 +245,8 @@ set.seed(101125)
 model_imp <- 
   mice(
     model_df,
-    m = 1,
-    maxit = 1,
+    m = 50,
+    maxit = 20,
     method = imp_method,
     predictorMatrix = pred_matrix
   )
@@ -198,103 +254,3 @@ model_imp <-
 model_imp$loggedEvents
 
 # saveRDS(model_imp, here::here("projects/nhanes/imputation_model_more_var.rds"))
-
-
-plot(model_imp, layout = c(10, 10))
-densityplot(model_imp)
-bwplot(model_imp)
-xyplot(model_imp, trigly_mg_dl ~ total_chol_mg_dl)
-
-propplot <- function(x, formula, facet = "wrap", ...) {
-  library(ggplot2)
-
-  cd <- data.frame(mice::complete(x, "long", include = TRUE))
-  cd$.imp <- factor(cd$.imp)
-  
-  r <- as.data.frame(is.na(x$data))
-  
-  impcat <- x$meth != "" & sapply(x$data, is.factor)
-  vnames <- names(impcat)[impcat]
-  
-  if (missing(formula)) {
-    formula <- as.formula(paste(paste(vnames, collapse = "+",
-                                      sep = ""), "~1", sep = ""))
-  }
-  
-  tmsx <- terms(formula[-3], data = x$data)
-  xnames <- attr(tmsx, "term.labels")
-  xnames <- xnames[xnames %in% vnames]
-  
-  if (paste(formula[3]) != "1") {
-    wvars <- gsub("[[:space:]]*\\|[[:print:]]*", "", paste(formula)[3])
-    # wvars <- all.vars(as.formula(paste("~", wvars)))
-    wvars <- attr(terms(as.formula(paste("~", wvars))), "term.labels")
-    if (grepl("\\|", formula[3])) {
-      svars <- gsub("[[:print:]]*\\|[[:space:]]*", "", paste(formula)[3])
-      svars <- all.vars(as.formula(paste("~", svars)))
-    } else {
-      svars <- ".imp"
-    }
-  } else {
-    wvars <- NULL
-    svars <- ".imp"
-  }
-  
-  for (i in seq_along(xnames)) {
-    xvar <- xnames[i]
-    select <- cd$.imp != 0 & !r[, xvar]
-    cd[select, xvar] <- NA
-  }
-  
-  
-  for (i in which(!wvars %in% names(cd))) {
-    cd[, wvars[i]] <- with(cd, eval(parse(text = wvars[i])))
-  }
-  
-  meltDF <- reshape2::melt(cd[, c(wvars, svars, xnames)], id.vars = c(wvars, svars))
-  meltDF <- meltDF[!is.na(meltDF$value), ]
-  
-  
-  wvars <- if (!is.null(wvars)) paste0("`", wvars, "`")
-  
-  a <- plyr::ddply(meltDF, c(wvars, svars, "variable", "value"), plyr::summarize,
-             count = length(value))
-  b <- plyr::ddply(meltDF, c(wvars, svars, "variable"), plyr::summarize,
-             tot = length(value))
-  mdf <- merge(a,b)
-  mdf$prop <- mdf$count / mdf$tot
-  
-  plotDF <- merge(unique(meltDF), mdf)
-  plotDF$value <- factor(plotDF$value,
-                         levels = unique(unlist(lapply(x$data[, xnames], levels))),
-                         ordered = T)
-  
-  p <- ggplot(plotDF, aes(x = value, fill = get(svars), y = prop)) +
-    geom_bar(position = "dodge", stat = "identity") +
-    theme(legend.position = "bottom", ...) +
-    ylab("proportion") +
-    scale_fill_manual(name = "",
-                      values = c("black",
-                                 colorRampPalette(
-                                   RColorBrewer::brewer.pal(9, "Blues"))(x$m + 3)[1:x$m + 3])) +
-    guides(fill = guide_legend(nrow = 1))
-  
-  if (facet == "wrap")
-    if (length(xnames) > 1) {
-      print(p + facet_wrap(c("variable", wvars), scales = "free"))
-    } else {
-      if (is.null(wvars)) {
-        print(p)
-      } else {
-        print(p + facet_wrap(wvars, scales = "free"))
-      }
-    }
-  
-  if (facet == "grid")
-    if (!is.null(wvars)) {
-      print(p + facet_grid(paste(paste(wvars, collapse = "+"), "~ variable"),
-                           scales = "free"))
-    }
-}
-
-propplot(model_imp)
