@@ -7,13 +7,12 @@ data {
     matrix[J, bi_feat] x_bi;
 }
 parameters {
-  
-  real<lower=0, upper=1> nu;
+  real<lower=1e-12, upper=1> nu;
   // If I wanted more than 2 classes
   // simplex[C] nu;
     
    // Binary feature probabilities
-   matrix<lower=0, upper=1>[bi_feat, C] theta_bi;
+   matrix<lower=1e-12, upper=1>[bi_feat, C] theta_bi;
 
    // Continuous feature parameters
    matrix[num_feat, C] mu;
@@ -48,8 +47,8 @@ model{
 
     // binary features
     for(f in 1:bi_feat) {
-      lps[1] += x_bi[j,f] * log(theta_bi[f,1]) + (1 - x_bi[j,f]) * log(1 - theta_bi[f,1]);
-      lps[2] += x_bi[j,f] * log(theta_bi[f,2]) + (1 - x_bi[j,f]) * log(1 - theta_bi[f,2]);
+      lps[1] += x_bi[j,f] * log(theta_bi[f,1]) + (1 - x_bi[j,f]) * log1m(theta_bi[f,1]);
+      lps[2] += x_bi[j,f] * log(theta_bi[f,2]) + (1 - x_bi[j,f]) * log1m(theta_bi[f,2]);
     }
 
     // numeric features
