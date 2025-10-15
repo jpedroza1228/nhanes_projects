@@ -16,7 +16,7 @@ long1 <- long |>
     ever_use_coke_heroin_meth:smoke_100cig_life,
     obese
   ) |>
-  slice_sample(n = 100)
+  slice_sample(n = 10)
 
 long1 <-
 long1 |>
@@ -67,6 +67,19 @@ long1 |>
     where(
       is.factor
     )
+  ) |>
+  mutate(
+    across(
+      where(is.factor),
+      ~as.numeric(.x)
+    ),
+    across(
+      everything(),
+      ~case_when(
+        .x ==2 ~ 1,
+        .x == 1 ~ 0
+      )
+    )
   )
 
 stan_list <- list(
@@ -77,6 +90,9 @@ stan_list <- list(
   x_num = x_num, # data for numeric features/IVs/predictors
   x_bi = x_bi # data for binary (includes dummy coded) features/IVs/predictors
 )
+
+rm(nb, fit)
+gc()
 
 nb <- cmdstan_model(here::here("stan/naive_bayes.stan"))
 
@@ -89,8 +105,8 @@ fit <- nb$sample(
   # init = 0,
   iter_warmup = 2000,
   iter_sampling = 2000,
-  # adapt_delta = .99,
-  parallel_chains = parallel::detectCores() - 1
+  adapt_delta = .99,
+  parallel_chains = parallel::detectCores() - 2
 )
 
 fit$output()[[1]]
